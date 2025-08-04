@@ -3,7 +3,7 @@ object Form1: TForm1
   Top = 0
   Caption = 'Form1'
   ClientHeight = 441
-  ClientWidth = 624
+  ClientWidth = 622
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
@@ -12,10 +12,31 @@ object Form1: TForm1
   Font.Style = []
   TextHeight = 15
   object lblStatus: TLabel
-    Left = 275
-    Top = 394
-    Width = 326
-    Height = 25
+    Left = 339
+    Top = 398
+    Width = 222
+    Height = 15
+  end
+  object Label1: TLabel
+    Left = 298
+    Top = 398
+    Width = 35
+    Height = 15
+    Caption = 'Status:'
+  end
+  object Label2: TLabel
+    Left = 16
+    Top = 85
+    Width = 57
+    Height = 15
+    Caption = 'Salvar em:'
+  end
+  object Label3: TLabel
+    Left = 16
+    Top = 35
+    Width = 102
+    Height = 15
+    Caption = 'Diretorio do banco:'
   end
   object edtCaminho: TEdit
     Left = 16
@@ -31,6 +52,7 @@ object Form1: TForm1
     Height = 25
     Caption = '...'
     TabOrder = 1
+    OnClick = btnBuscarClick
   end
   object btnIniciar: TButton
     Left = 16
@@ -50,8 +72,24 @@ object Form1: TForm1
       'Memo1')
     TabOrder = 3
   end
+  object edtDestino: TEdit
+    Left = 16
+    Top = 104
+    Width = 545
+    Height = 23
+    TabOrder = 4
+  end
+  object btnSalvarEm: TButton
+    Left = 576
+    Top = 103
+    Width = 25
+    Height = 25
+    Caption = '...'
+    TabOrder = 5
+    OnClick = btnSalvarEmClick
+  end
   object OpenDialog1: TOpenDialog
     Left = 576
-    Top = 88
+    Top = 8
   end
 end

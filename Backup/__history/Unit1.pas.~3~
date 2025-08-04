@@ -1,0 +1,104 @@
+﻿unit Unit1;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, System.Zip,
+  Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, ShellAPI;
+
+type
+  TForm1 = class(TForm)
+    edtCaminho: TEdit;
+    btnBuscar: TButton;
+    OpenDialog1: TOpenDialog;
+    btnIniciar: TButton;
+    Memo1: TMemo;
+    lblStatus: TLabel;
+    procedure btnBuscarClick(Sender: TObject);
+    procedure btnIniciarClick(Sender: TObject);
+  private
+    procedure ZipDatabase(const DBPath, DestZip: string);
+    procedure GerarBackupGBAK(const DBPath, DestDir: string);
+  public
+  end;
+
+var
+  Form1: TForm1;
+
+implementation
+
+{$R *.dfm}
+
+procedure TForm1.btnBuscarClick(Sender: TObject);
+begin
+  OpenDialog1.Filter := 'Firebird Database (*.fdb)|*.fdb';
+  if OpenDialog1.Execute then
+    edtCaminho.Text := OpenDialog1.FileName;
+end;
+
+procedure TForm1.btnIniciarClick(Sender: TObject);
+var
+  DBPath, AppPath, ZipFile: string;
+begin
+  Memo1.Lines.Clear;
+
+  DBPath := edtCaminho.Text;
+  if not FileExists(DBPath) then
+  begin
+    ShowMessage('Banco de dados não encontrado!');
+    Exit;
+  end;
+
+  AppPath := ExtractFilePath(Application.ExeName);
+  ZipFile := AppPath + ChangeFileExt(ExtractFileName(DBPath), '.zip');
+
+  Memo1.Lines.Add('Compactando banco de dados...');
+  lblStatus.Caption := 'Compactando banco...';
+  ZipDatabase(DBPath, ZipFile);
+  Memo1.Lines.Add('Arquivo ZIP criado em: ' + ZipFile);
+
+  Memo1.Lines.Add('Gerando backup .gbk...');
+  lblStatus.Caption := 'Gerando backup .gbk...';
+  GerarBackupGBAK(DBPath, AppPath);
+  Memo1.Lines.Add('Backup .gbk gerado no diretório do aplicativo.');
+
+  lblStatus.Caption := 'Backup finalizado com sucesso!';
+end;
+
+procedure TForm1.ZipDatabase(const DBPath, DestZip: string);
+var
+  ZipFile: TZipFile;
+begin
+  ZipFile := TZipFile.Create;
+  try
+    ZipFile.Open(DestZip, zmWrite);
+    ZipFile.Add(DBPath, ExtractFileName(DBPath));
+    ZipFile.Close;
+  finally
+    ZipFile.Free;
+  end;
+end;
+
+procedure TForm1.GerarBackupGBAK(const DBPath, DestDir: string);
+var
+  GbakPath, DBUser, DBPass, GbkFile, CommandLine: string;
+begin
+  GbakPath := 'C:\Program Files (x86)\Firebird\Firebird_2_5\bin\gbak.exe';
+  DBUser := 'SYSDBA';
+  DBPass := 'masterkey';
+  GbkFile := IncludeTrailingPathDelimiter(DestDir) + ChangeFileExt(ExtractFileName(DBPath), '.gbk');
+
+  if not FileExists(GbakPath) then
+  begin
+    Memo1.Lines.Add('Erro: gbak.exe não encontrado!');
+    Exit;
+  end;
+
+  CommandLine := Format('"%s" -b -user %s -pass %s "%s" "%s"',
+    [GbakPath, DBUser, DBPass, DBPath, GbkFile]);
+
+  ShellExecute(0, 'open', 'cmd.exe', PChar('/C ' + CommandLine), nil, SW_HIDE);
+end;
+
+end.
+

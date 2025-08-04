@@ -1,4 +1,4 @@
-unit Unit1;
+﻿unit Unit1;
 
 interface
 
@@ -14,11 +14,18 @@ type
     btnIniciar: TButton;
     Memo1: TMemo;
     lblStatus: TLabel;
+    edtDestino: TEdit;
+    btnSalvarEm: TButton;
+    Label1: TLabel;
+    Label2: TLabel;
+    Label3: TLabel;
     procedure btnBuscarClick(Sender: TObject);
+    procedure btnSalvarEmClick(Sender: TObject);
     procedure btnIniciarClick(Sender: TObject);
   private
+    procedure VerificarIntegridadeBanco(const DBPath: string);
     procedure ZipDatabase(const DBPath, DestZip: string);
-    procedure GerarBackupGBAK(const DBPath, DestDir: string);
+    procedure GerarBackupGBAK(const DBPath, DestGbk: string);
   public
   end;
 
@@ -36,21 +43,44 @@ begin
     edtCaminho.Text := OpenDialog1.FileName;
 end;
 
+procedure TForm1.btnSalvarEmClick(Sender: TObject);
+begin
+  OpenDialog1.Title := 'Escolha o local para salvar o backup';
+  OpenDialog1.FileName := 'backup.gbk';
+  OpenDialog1.Filter := 'Firebird Backup (*.gbk)|*.gbk';
+  OpenDialog1.Options := [ofOverwritePrompt, ofCreatePrompt];
+
+  if OpenDialog1.Execute then
+    edtDestino.Text := OpenDialog1.FileName;
+end;
+
 procedure TForm1.btnIniciarClick(Sender: TObject);
 var
-  DBPath, AppPath, ZipFile: string;
+  DBPath, DestPath, ZipFile, GbkFile: string;
 begin
   Memo1.Lines.Clear;
 
   DBPath := edtCaminho.Text;
+  DestPath := edtDestino.Text;
+
   if not FileExists(DBPath) then
   begin
     ShowMessage('Banco de dados não encontrado!');
     Exit;
   end;
 
-  AppPath := ExtractFilePath(Application.ExeName);
-  ZipFile := AppPath + ChangeFileExt(ExtractFileName(DBPath), '.zip');
+  if DestPath = '' then
+  begin
+    ShowMessage('Informe o caminho de destino do backup.');
+    Exit;
+  end;
+
+  // Verifica integridade
+  VerificarIntegridadeBanco(DBPath);
+
+  // Cria caminho do .zip com base no destino informado
+  ZipFile := ChangeFileExt(DestPath, '.zip');
+  GbkFile := ChangeFileExt(DestPath, '.gbk');
 
   Memo1.Lines.Add('Compactando banco de dados...');
   lblStatus.Caption := 'Compactando banco...';
@@ -59,8 +89,8 @@ begin
 
   Memo1.Lines.Add('Gerando backup .gbk...');
   lblStatus.Caption := 'Gerando backup .gbk...';
-  GerarBackupGBAK(DBPath, AppPath);
-  Memo1.Lines.Add('Backup .gbk gerado no diretório do aplicativo.');
+  GerarBackupGBAK(DBPath, GbkFile);
+  Memo1.Lines.Add('Backup .gbk gerado em: ' + GbkFile);
 
   lblStatus.Caption := 'Backup finalizado com sucesso!';
 end;
@@ -79,14 +109,13 @@ begin
   end;
 end;
 
-procedure TForm1.GerarBackupGBAK(const DBPath, DestDir: string);
+procedure TForm1.GerarBackupGBAK(const DBPath, DestGbk: string);
 var
-  GbakPath, DBUser, DBPass, GbkFile, CommandLine: string;
+  GbakPath, DBUser, DBPass, CommandLine: string;
 begin
-  GbakPath := 'C:\Program Files\Firebird\Firebird_3_0\bin\gbak.exe'; // ajuste conforme sua instalação
+  GbakPath := 'C:\Program Files\Firebird\Firebird_3_0\bin\gbak.exe';
   DBUser := 'SYSDBA';
   DBPass := 'masterkey';
-  GbkFile := IncludeTrailingPathDelimiter(DestDir) + ChangeFileExt(ExtractFileName(DBPath), '.gbk');
 
   if not FileExists(GbakPath) then
   begin
@@ -95,9 +124,56 @@ begin
   end;
 
   CommandLine := Format('"%s" -b -user %s -pass %s "%s" "%s"',
-    [GbakPath, DBUser, DBPass, DBPath, GbkFile]);
+    [GbakPath, DBUser, DBPass, DBPath, DestGbk]);
 
   ShellExecute(0, 'open', 'cmd.exe', PChar('/C ' + CommandLine), nil, SW_HIDE);
+end;
+
+procedure TForm1.VerificarIntegridadeBanco(const DBPath: string);
+var
+  GfixPath, DBUser, DBPass, CommandLine: string;
+  ExitCode: DWORD;
+  StartupInfo: TStartupInfo;
+  ProcessInfo: TProcessInformation;
+begin
+  GfixPath := 'C:\Program Files\Firebird\Firebird_3_0\bin\gfix.exe';
+  DBUser := 'SYSDBA';
+  DBPass := 'masterkey';
+
+  if not FileExists(GfixPath) then
+  begin
+    Memo1.Lines.Add('Erro: gfix.exe não encontrado!');
+    Exit;
+  end;
+
+  Memo1.Lines.Add('Verificando integridade do banco...');
+  lblStatus.Caption := 'Verificando integridade...';
+
+  CommandLine := Format('"%s" -v -user %s -pass %s "%s"',
+    [GfixPath, DBUser, DBPass, DBPath]);
+
+  ZeroMemory(@StartupInfo, SizeOf(StartupInfo));
+  StartupInfo.cb := SizeOf(StartupInfo);
+  ZeroMemory(@ProcessInfo, SizeOf(ProcessInfo));
+
+  if CreateProcess(nil, PChar(CommandLine), nil, nil, False,
+    CREATE_NO_WINDOW, nil, nil, StartupInfo, ProcessInfo) then
+  begin
+    WaitForSingleObject(ProcessInfo.hProcess, INFINITE);
+    GetExitCodeProcess(ProcessInfo.hProcess, ExitCode);
+
+    CloseHandle(ProcessInfo.hProcess);
+    CloseHandle(ProcessInfo.hThread);
+
+    if ExitCode = 0 then
+      Memo1.Lines.Add('Banco de dados está íntegro.')
+    else
+      Memo1.Lines.Add('Possível corrupção detectada no banco de dados.');
+  end
+  else
+  begin
+    Memo1.Lines.Add('Falha ao executar gfix.');
+  end;
 end;
 
 end.
