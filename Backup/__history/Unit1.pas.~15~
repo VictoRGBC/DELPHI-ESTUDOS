@@ -16,21 +16,18 @@ type
     lblStatus: TLabel;
     edtDestino: TEdit;
     btnSalvarEm: TButton;
-    Label1, Label2, Label3: TLabel;
+    Label1: TLabel;
+    Label2: TLabel;
+    Label3: TLabel;
     SaveDialog1: TSaveDialog;
-    cbVersaoFirebird: TComboBox;     // Seleção da versão do Firebird
-
     procedure btnBuscarClick(Sender: TObject);
     procedure btnSalvarEmClick(Sender: TObject);
     procedure btnIniciarClick(Sender: TObject);
-
   private
-    // Funções auxiliares
     procedure VerificarIntegridadeBanco(const DBPath: string);
     procedure ZipDatabase(const DBPath, DestZip: string);
     procedure GerarBackupGBAK(const DBPath, DestGbk: string);
-    function GetFirebirdPath(const Executavel: string): string;
-
+    procedure VerificarBackupRestaurando(const GbkFile: string);
   public
   end;
 
@@ -41,9 +38,6 @@ implementation
 
 {$R *.dfm}
 
-{ ===============================================
-  BOTÃO: Selecionar Banco de Dados (.fdb)
-  =============================================== }
 procedure TForm1.btnBuscarClick(Sender: TObject);
 begin
   OpenDialog1.Filter := 'Firebird Database (*.fdb)|*.fdb';
@@ -51,9 +45,6 @@ begin
     edtCaminho.Text := OpenDialog1.FileName;
 end;
 
-{ ===============================================
-  BOTÃO: Selecionar destino para salvar o .gbk
-  =============================================== }
 procedure TForm1.btnSalvarEmClick(Sender: TObject);
 begin
   SaveDialog1.Title := 'Escolha onde salvar o backup do banco';
@@ -65,23 +56,6 @@ begin
     edtDestino.Text := SaveDialog1.FileName;
 end;
 
-{ ===============================================
-  FUNÇÃO: Retorna o caminho correto do executável
-  com base na versão do Firebird selecionada
-  =============================================== }
-function TForm1.GetFirebirdPath(const Executavel: string): string;
-begin
-  if cbVersaoFirebird.ItemIndex = 0 then // Firebird 2.5
-    Result := IncludeTrailingPathDelimiter('C:\Program Files (x86)\Firebird\Firebird_2_5\bin') + Executavel
-  else if cbVersaoFirebird.ItemIndex = 1 then // Firebird 3.0
-    Result := IncludeTrailingPathDelimiter('C:\Program Files\Firebird\Firebird_3_0\bin') + Executavel
-  else
-    raise Exception.Create('Versão do Firebird não suportada.');
-end;
-
-{ ===============================================
-  BOTÃO: Iniciar Backup e Compactação
-  =============================================== }
 procedure TForm1.btnIniciarClick(Sender: TObject);
 var
   DBPath, DestPath, ZipFile, GbkFile: string;
@@ -91,7 +65,6 @@ begin
   DBPath := edtCaminho.Text;
   DestPath := edtDestino.Text;
 
-  // Validação de caminhos
   if not FileExists(DBPath) then
   begin
     ShowMessage('Banco de dados não encontrado!');
@@ -104,31 +77,28 @@ begin
     Exit;
   end;
 
-  // Caminhos de saída
+  // Verifica integridade
+  VerificarIntegridadeBanco(DBPath);
+
+  // Cria caminho do .zip com base no destino informado
   ZipFile := ChangeFileExt(DestPath, '.zip');
   GbkFile := ChangeFileExt(DestPath, '.gbk');
 
-  // Verificar integridade do banco
-  VerificarIntegridadeBanco(DBPath);
-
-  // Compactar o .fdb em .zip
   Memo1.Lines.Add('Compactando banco de dados...');
   lblStatus.Caption := 'Compactando banco...';
   ZipDatabase(DBPath, ZipFile);
   Memo1.Lines.Add('Arquivo ZIP criado em: ' + ZipFile);
 
-  // Gerar o backup .gbk
   Memo1.Lines.Add('Gerando backup .gbk...');
   lblStatus.Caption := 'Gerando backup .gbk...';
   GerarBackupGBAK(DBPath, GbkFile);
   Memo1.Lines.Add('Backup .gbk gerado em: ' + GbkFile);
 
-  lblStatus.Caption := 'Backup finalizado com sucesso!';
+  VerificarBackupRestaurando(GbkFile);
+  lblStatus.Caption := 'Backup finalizado e verificado com sucesso!';
+
 end;
 
-{ ===============================================
-  COMPACTAÇÃO: Cria um arquivo ZIP com o .fdb
-  =============================================== }
 procedure TForm1.ZipDatabase(const DBPath, DestZip: string);
 var
   ZipFile: TZipFile;
@@ -143,9 +113,6 @@ begin
   end;
 end;
 
-{ ===============================================
-  BACKUP: Gera o .gbk utilizando o gbak.exe
-  =============================================== }
 procedure TForm1.GerarBackupGBAK(const DBPath, DestGbk: string);
 var
   GbakPath, DBUser, DBPass, CommandLine: string;
@@ -153,16 +120,19 @@ var
   ProcessInfo: TProcessInformation;
   ExitCode: DWORD;
 begin
-  GbakPath := GetFirebirdPath('gbak.exe');
+  // Caminho para o gbak.exe do Firebird 2.5
+  GbakPath := 'C:\Program Files (x86)\Firebird\Firebird_2_5\bin\gbak.exe';
   DBUser := 'SYSDBA';
   DBPass := 'masterkey';
 
+  // Verifica se o gbak existe
   if not FileExists(GbakPath) then
   begin
-    Memo1.Lines.Add('Erro: gbak.exe não encontrado!');
+    Memo1.Lines.Add('Erro: gbak.exe (Firebird 2.5) não encontrado!');
     Exit;
   end;
 
+  // Monta a linha de comando para o backup
   CommandLine := Format('"%s" -b -user %s -password %s "%s" "%s"',
     [GbakPath, DBUser, DBPass, DBPath, DestGbk]);
 
@@ -172,6 +142,7 @@ begin
   StartupInfo.cb := SizeOf(StartupInfo);
   ZeroMemory(@ProcessInfo, SizeOf(ProcessInfo));
 
+  // Cria o processo (modo oculto)
   if CreateProcess(nil, PChar(CommandLine), nil, nil, False,
     CREATE_NO_WINDOW, nil, nil, StartupInfo, ProcessInfo) then
   begin
@@ -182,17 +153,21 @@ begin
     CloseHandle(ProcessInfo.hThread);
 
     if ExitCode = 0 then
-      Memo1.Lines.Add('✅ Backup .gbk gerado com sucesso.')
+    begin
+      Memo1.Lines.Add('✅ Backup .gbk gerado com sucesso.');
+    end
     else
-      Memo1.Lines.Add('❌ Erro ao gerar backup. Código: ' + IntToStr(ExitCode));
+    begin
+      Memo1.Lines.Add('❌ Erro ao gerar backup. Código de saída: ' + IntToStr(ExitCode));
+    end;
   end
   else
+  begin
     Memo1.Lines.Add('❌ Falha ao iniciar o processo de backup.');
+  end;
 end;
 
-{ ===============================================
-  VERIFICAÇÃO: Executa o gfix para checar integridade
-  =============================================== }
+
 procedure TForm1.VerificarIntegridadeBanco(const DBPath: string);
 var
   GfixPath, DBUser, DBPass, CommandLine: string;
@@ -200,7 +175,7 @@ var
   StartupInfo: TStartupInfo;
   ProcessInfo: TProcessInformation;
 begin
-  GfixPath := GetFirebirdPath('gfix.exe');
+  GfixPath := 'C:\Program Files (x86)\Firebird\Firebird_2_5\bin\gfix.exe';
   DBUser := 'SYSDBA';
   DBPass := 'masterkey';
 
@@ -235,8 +210,81 @@ begin
       Memo1.Lines.Add('Possível corrupção detectada no banco de dados.');
   end
   else
+  begin
     Memo1.Lines.Add('Falha ao executar gfix.');
+  end;
 end;
+
+procedure TForm1.VerificarBackupRestaurando(const GbkFile: string);
+var
+  GbakPath, DBUser, DBPass, TempFdb, CommandLine: string;
+  StartupInfo: TStartupInfo;
+  ProcessInfo: TProcessInformation;
+  ExitCode: DWORD;
+begin
+  GbakPath := 'C:\Program Files (x86)\Firebird\Firebird_2_5\bin\gbak.exe';
+  DBUser := 'SYSDBA';
+  DBPass := 'masterkey';
+  TempFdb := ChangeFileExt(GbkFile, '_restored.fdb');
+
+  if not FileExists(GbakPath) then
+  begin
+    Memo1.Lines.Add('Erro: gbak.exe (Firebird 2.5) não encontrado para verificação do backup!');
+    Exit;
+  end;
+
+  if not FileExists(GbkFile) then
+  begin
+    Memo1.Lines.Add('Erro: arquivo .gbk não encontrado para verificação!');
+    Exit;
+  end;
+
+  Memo1.Lines.Add('Verificando integridade do backup através da restauração...');
+  lblStatus.Caption := 'Verificando backup restaurando...';
+
+  CommandLine := Format('"%s" -c -user %s -password %s "%s" "%s"',
+    [GbakPath, DBUser, DBPass, GbkFile, TempFdb]);
+
+  ZeroMemory(@StartupInfo, SizeOf(StartupInfo));
+  StartupInfo.cb := SizeOf(StartupInfo);
+  ZeroMemory(@ProcessInfo, SizeOf(ProcessInfo));
+
+  if CreateProcess(nil, PChar(CommandLine), nil, nil, False,
+    CREATE_NO_WINDOW, nil, nil, StartupInfo, ProcessInfo) then
+  begin
+    WaitForSingleObject(ProcessInfo.hProcess, INFINITE);
+    GetExitCodeProcess(ProcessInfo.hProcess, ExitCode);
+
+    CloseHandle(ProcessInfo.hProcess);
+    CloseHandle(ProcessInfo.hThread);
+
+    if ExitCode = 0 then
+    begin
+      Memo1.Lines.Add('✅ Backup restaurado com sucesso. Arquivo .gbk é válido.');
+    end
+    else
+    begin
+      Memo1.Lines.Add('❌ Erro ao restaurar o backup. Código de saída: ' + IntToStr(ExitCode));
+    end;
+  end
+  else
+  begin
+    Memo1.Lines.Add('❌ Falha ao tentar restaurar o backup para verificação.');
+  end;
+
+  // Tenta remover o banco restaurado temporário
+  if FileExists(TempFdb) then
+  begin
+    try
+      DeleteFile(TempFdb);
+      Memo1.Lines.Add('🗑 Banco temporário restaurado foi excluído com sucesso.');
+    except
+      on E: Exception do
+        Memo1.Lines.Add('⚠ Falha ao excluir banco restaurado: ' + E.Message);
+    end;
+  end;
+end;
+
 
 end.
 

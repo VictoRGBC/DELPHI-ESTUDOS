@@ -11,26 +11,22 @@ type
     edtCaminho: TEdit;
     btnBuscar: TButton;
     OpenDialog1: TOpenDialog;
+    SaveDialog1: TSaveDialog;
     btnIniciar: TButton;
     Memo1: TMemo;
     lblStatus: TLabel;
     edtDestino: TEdit;
     btnSalvarEm: TButton;
-    Label1, Label2, Label3: TLabel;
-    SaveDialog1: TSaveDialog;
-    cbVersaoFirebird: TComboBox;     // Seleção da versão do Firebird
-
+    Label1: TLabel;
+    Label2: TLabel;
+    Label3: TLabel;
     procedure btnBuscarClick(Sender: TObject);
     procedure btnSalvarEmClick(Sender: TObject);
     procedure btnIniciarClick(Sender: TObject);
-
   private
-    // Funções auxiliares
     procedure VerificarIntegridadeBanco(const DBPath: string);
     procedure ZipDatabase(const DBPath, DestZip: string);
     procedure GerarBackupGBAK(const DBPath, DestGbk: string);
-    function GetFirebirdPath(const Executavel: string): string;
-
   public
   end;
 
@@ -41,9 +37,6 @@ implementation
 
 {$R *.dfm}
 
-{ ===============================================
-  BOTÃO: Selecionar Banco de Dados (.fdb)
-  =============================================== }
 procedure TForm1.btnBuscarClick(Sender: TObject);
 begin
   OpenDialog1.Filter := 'Firebird Database (*.fdb)|*.fdb';
@@ -51,37 +44,17 @@ begin
     edtCaminho.Text := OpenDialog1.FileName;
 end;
 
-{ ===============================================
-  BOTÃO: Selecionar destino para salvar o .gbk
-  =============================================== }
 procedure TForm1.btnSalvarEmClick(Sender: TObject);
 begin
-  SaveDialog1.Title := 'Escolha onde salvar o backup do banco';
+  SaveDialog1.Title := 'Escolha o local para salvar o backup';
   SaveDialog1.FileName := 'backup.gbk';
   SaveDialog1.Filter := 'Firebird Backup (*.gbk)|*.gbk';
-  SaveDialog1.DefaultExt := 'gbk';
+  SaveDialog1.Options := [ofOverwritePrompt, ofCreatePrompt];
 
   if SaveDialog1.Execute then
     edtDestino.Text := SaveDialog1.FileName;
 end;
 
-{ ===============================================
-  FUNÇÃO: Retorna o caminho correto do executável
-  com base na versão do Firebird selecionada
-  =============================================== }
-function TForm1.GetFirebirdPath(const Executavel: string): string;
-begin
-  if cbVersaoFirebird.ItemIndex = 0 then // Firebird 2.5
-    Result := IncludeTrailingPathDelimiter('C:\Program Files (x86)\Firebird\Firebird_2_5\bin') + Executavel
-  else if cbVersaoFirebird.ItemIndex = 1 then // Firebird 3.0
-    Result := IncludeTrailingPathDelimiter('C:\Program Files\Firebird\Firebird_3_0\bin') + Executavel
-  else
-    raise Exception.Create('Versão do Firebird não suportada.');
-end;
-
-{ ===============================================
-  BOTÃO: Iniciar Backup e Compactação
-  =============================================== }
 procedure TForm1.btnIniciarClick(Sender: TObject);
 var
   DBPath, DestPath, ZipFile, GbkFile: string;
@@ -91,7 +64,6 @@ begin
   DBPath := edtCaminho.Text;
   DestPath := edtDestino.Text;
 
-  // Validação de caminhos
   if not FileExists(DBPath) then
   begin
     ShowMessage('Banco de dados não encontrado!');
@@ -104,31 +76,26 @@ begin
     Exit;
   end;
 
-  // Caminhos de saída
+  // Verifica integridade do banco
+  VerificarIntegridadeBanco(DBPath);
+
+  // Define caminhos dos arquivos gerados
   ZipFile := ChangeFileExt(DestPath, '.zip');
   GbkFile := ChangeFileExt(DestPath, '.gbk');
 
-  // Verificar integridade do banco
-  VerificarIntegridadeBanco(DBPath);
-
-  // Compactar o .fdb em .zip
   Memo1.Lines.Add('Compactando banco de dados...');
   lblStatus.Caption := 'Compactando banco...';
   ZipDatabase(DBPath, ZipFile);
   Memo1.Lines.Add('Arquivo ZIP criado em: ' + ZipFile);
 
-  // Gerar o backup .gbk
   Memo1.Lines.Add('Gerando backup .gbk...');
   lblStatus.Caption := 'Gerando backup .gbk...';
   GerarBackupGBAK(DBPath, GbkFile);
   Memo1.Lines.Add('Backup .gbk gerado em: ' + GbkFile);
 
-  lblStatus.Caption := 'Backup finalizado com sucesso!';
+  lblStatus.Caption := '✔️ Backup finalizado com sucesso!';
 end;
 
-{ ===============================================
-  COMPACTAÇÃO: Cria um arquivo ZIP com o .fdb
-  =============================================== }
 procedure TForm1.ZipDatabase(const DBPath, DestZip: string);
 var
   ZipFile: TZipFile;
@@ -143,9 +110,6 @@ begin
   end;
 end;
 
-{ ===============================================
-  BACKUP: Gera o .gbk utilizando o gbak.exe
-  =============================================== }
 procedure TForm1.GerarBackupGBAK(const DBPath, DestGbk: string);
 var
   GbakPath, DBUser, DBPass, CommandLine: string;
@@ -153,7 +117,8 @@ var
   ProcessInfo: TProcessInformation;
   ExitCode: DWORD;
 begin
-  GbakPath := GetFirebirdPath('gbak.exe');
+  // Caminho para o gbak.exe (ajuste conforme instalação do Firebird)
+  GbakPath := 'C:\Program Files (x86)\Firebird\Firebird_2_5\bin\gbak.exe';
   DBUser := 'SYSDBA';
   DBPass := 'masterkey';
 
@@ -163,10 +128,8 @@ begin
     Exit;
   end;
 
-  CommandLine := Format('"%s" -b -user %s -password %s "%s" "%s"',
+  CommandLine := Format('"%s" -b -user %s -pass %s "%s" "%s"',
     [GbakPath, DBUser, DBPass, DBPath, DestGbk]);
-
-  Memo1.Lines.Add('Executando: ' + CommandLine);
 
   ZeroMemory(@StartupInfo, SizeOf(StartupInfo));
   StartupInfo.cb := SizeOf(StartupInfo);
@@ -182,17 +145,16 @@ begin
     CloseHandle(ProcessInfo.hThread);
 
     if ExitCode = 0 then
-      Memo1.Lines.Add('✅ Backup .gbk gerado com sucesso.')
+      Memo1.Lines.Add('Backup .gbk concluído com sucesso.')
     else
-      Memo1.Lines.Add('❌ Erro ao gerar backup. Código: ' + IntToStr(ExitCode));
+      Memo1.Lines.Add('Falha ao gerar backup .gbk. Código de saída: ' + IntToStr(ExitCode));
   end
   else
-    Memo1.Lines.Add('❌ Falha ao iniciar o processo de backup.');
+  begin
+    Memo1.Lines.Add('Falha ao executar gbak.');
+  end;
 end;
 
-{ ===============================================
-  VERIFICAÇÃO: Executa o gfix para checar integridade
-  =============================================== }
 procedure TForm1.VerificarIntegridadeBanco(const DBPath: string);
 var
   GfixPath, DBUser, DBPass, CommandLine: string;
@@ -200,7 +162,8 @@ var
   StartupInfo: TStartupInfo;
   ProcessInfo: TProcessInformation;
 begin
-  GfixPath := GetFirebirdPath('gfix.exe');
+  // Caminho para o gfix.exe (ajuste conforme instalação do Firebird)
+  GfixPath := 'C:\Program Files (x86)\Firebird\Firebird_2_5\bin\gfix.exe';
   DBUser := 'SYSDBA';
   DBPass := 'masterkey';
 
@@ -235,7 +198,9 @@ begin
       Memo1.Lines.Add('Possível corrupção detectada no banco de dados.');
   end
   else
+  begin
     Memo1.Lines.Add('Falha ao executar gfix.');
+  end;
 end;
 
 end.
